@@ -1,17 +1,16 @@
 package demo.event;
 
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-@JsonSerialize
-@Builder
+/** Simple (reference,count) POJO used by all operators. */
 @Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class DemoEvent {
-
-    private String name;
+    private String  reference;
+    private Integer count;
 }

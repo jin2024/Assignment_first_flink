@@ -1,45 +1,53 @@
 package demo.flink;
 
 import demo.event.DemoEvent;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-import org.apache.flink.connector.kafka.sink.KafkaSink;
-import org.apache.flink.connector.kafka.source.KafkaSource;
+import org.apache.flink.api.common.functions.ReduceFunction;
+import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
-@Slf4j
 public class EventProcessor {
 
-    private static final String BOOTSTRAP_SERVERS_DEFAULT = "localhost:9092";
-    private static final String SOURCE_TOPIC = "demo-inbound";
-    private static final String SINK_TOPIC = "demo-outbound";
+    // Default values – override with --txt and --bootstrap if you like.
+    private static final String DEFAULT_TXT       = "wc.txt";
+    private static final String DEFAULT_BOOTSTRAP = "localhost:9092";
+    private static final String OUT_TOPIC         = "wc_out";
 
-    public static void main(String[] args) {
-        String bootstrapServers = BOOTSTRAP_SERVERS_DEFAULT;
-        if (args.length > 0) {
-            bootstrapServers = args[0];
-        }
-        log.info("Bootstrap servers URL: {}", bootstrapServers);
+    public static void main(String[] args) throws Exception {
 
-        log.info("Flink job starting");  // Logging used for component test to check container started.
-        KafkaConnectorFactory factory = new KafkaConnectorFactory(bootstrapServers);
-        execute(StreamExecutionEnvironment.getExecutionEnvironment(),
-                factory.kafkaSource(SOURCE_TOPIC),
-                factory.kafkaSink(SINK_TOPIC));
-        log.info("Flink job has finished.");
+        /* --- parse CLI --------------------------------------------------- */
+        ParameterTool params = ParameterTool.fromArgs(args);
+        String txtPath   = params.get("txt",       DEFAULT_TXT);
+        String bootstrap = params.get("bootstrap", DEFAULT_BOOTSTRAP);
+
+        /* --- build execution environment --------------------------------- */
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+        /* --- source: plain text file ------------------------------------- */
+        DataStream<String> lines = env.readTextFile(txtPath);
+
+        /* --- transform: tokenise and aggregate --------------------------- */
+        DataStream<DemoEvent> counts = lines
+                .flatMap(new LineTokenizerFunction())               // (ref,1)
+                .keyBy(DemoEvent::getReference)                     // group by ref
+                .reduce(new SumCounts());                           // sum → (ref,total)
+
+        /* --- sink: write aggregated counts as JSON into Kafka ----------- */
+        KafkaConnectorFactory factory = new KafkaConnectorFactory(bootstrap);
+        counts.sinkTo(factory.sink(OUT_TOPIC));
+
+        env.execute("Word-Count to Kafka");
     }
 
-    protected static void execute(StreamExecutionEnvironment environment, KafkaSource<DemoEvent> kafkaSource, KafkaSink<DemoEvent> kafkaSink) {
-        try {
-            DataStream<DemoEvent> eventInputStream = environment
-                .fromSource(kafkaSource, WatermarkStrategy.noWatermarks(), "Kafka Source");
-            eventInputStream.map(new NameTransformerFunction())
-                .sinkTo(kafkaSink);
-            environment.execute("EventProcessor Job");
-        } catch (Exception e) {
-            log.error("Failed to execute Flink job", e);
-            throw new RuntimeException("Failed to execute Flink job", e);
+    /** Adds the counts of two DemoEvents with the same reference. */
+    private static final class SumCounts implements ReduceFunction<DemoEvent> {
+        @Override
+        public DemoEvent reduce(DemoEvent left, DemoEvent right) {
+            return DemoEvent.builder()
+                    .reference(left.getReference())
+                    .count(left.getCount() + right.getCount())
+                    .build();
         }
     }
 }

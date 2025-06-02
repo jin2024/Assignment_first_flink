@@ -3,9 +3,8 @@ package demo.flink;
 import demo.event.DemoEvent;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
-import org.apache.flink.connector.kafka.source.KafkaSource;
-import org.apache.flink.formats.json.JsonDeserializationSchema;
 import org.apache.flink.formats.json.JsonSerializationSchema;
+/** Centralises all Kafka configuration so the job code stays clean. */
 
 public class KafkaConnectorFactory {
 
@@ -15,21 +14,16 @@ public class KafkaConnectorFactory {
         this.bootstrapServers = bootstrapServers;
     }
 
-    public KafkaSource<DemoEvent> kafkaSource(String sourceTopic) {
-        return KafkaSource.<DemoEvent>builder()
-                .setBootstrapServers(bootstrapServers)
-                .setValueOnlyDeserializer(new JsonDeserializationSchema<>(DemoEvent.class))
-                .setTopics(sourceTopic)
-                .build();
-    }
 
-    public KafkaSink<DemoEvent> kafkaSink(String sinkTopic) {
+    /** Builds a Kafka sink that writes DemoEvent as JSON to the given topic . */
+
+    public KafkaSink<DemoEvent> sink(String Topic) {
         return KafkaSink.<DemoEvent>builder()
                 .setBootstrapServers(bootstrapServers)
                 .setRecordSerializer(
                         KafkaRecordSerializationSchema.<DemoEvent>builder()
+                                .setTopic(Topic)
                                 .setValueSerializationSchema(new JsonSerializationSchema<>())
-                                .setTopic(sinkTopic)
                                 .build())
                 .build();
     }
